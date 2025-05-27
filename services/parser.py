@@ -1,60 +1,104 @@
 import requests
 from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
+from typing import Dict, List
 
-def parse_schedule(url):
+def parse_schedule(url: str, week_type: str = "current") -> Dict[str, List[Dict]]:
+    """
+    Парсит расписание и возвращает данные только для указанной недели.
+    
+    Параметры:
+        url: URL страницы с расписанием
+        week_type: "current" - текущая неделя, "next" - следующая неделя
+    
+    Возвращает:
+        Словарь с расписанием для запрошенной недели в формате:
+        {
+            "Понедельник": [
+                {"time": "09:00", "subject": "Математика", "room": "304"},
+                ...
+            ],
+            ...
+        }
+    """
     try:
         # Загружаем страницу
-        response = requests.get(url)
-        response.raise_for_status()  # Проверка на ошибки
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
         
-        # Парсим HTML
         soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Находим таблицу с расписанием
         table = soup.find('table', {'class': 'table table-main table-bordered'})
         
         if not table:
             print("Таблица расписания не найдена!")
-            return
-        
-        # Извлекаем данные
-        schedule = []
-        current_date = ""
+            return {}
+
+        # Получаем все дни из расписания
+        all_days = []
+        current_day = ""
         
         for row in table.find_all('tr'):
-            # Проверяем, является ли строка заголовком с датой
             date_header = row.find('th', {'class': 'td-left'})
             if date_header:
-                current_date = date_header.get_text(strip=True)
+                current_day = date_header.get_text(strip=True)
+                all_days.append(current_day)
+                continue
+
+        if not all_days:
+            return {}
+
+        # Определяем дни для текущей и следующей недели
+        middle_index = len(all_days) // 2
+        current_week_days = all_days[:middle_index]
+        next_week_days = all_days[middle_index:]
+
+        # Парсим данные и фильтруем по неделям
+        schedule = {}
+        current_day = ""
+        
+        for row in table.find_all('tr'):
+            date_header = row.find('th', {'class': 'td-left'})
+            if date_header:
+                current_day = date_header.get_text(strip=True)
+                if (week_type == "current" and current_day in current_week_days) or \
+                   (week_type == "next" and current_day in next_week_days):
+                    schedule[current_day] = []
                 continue
             
-            # Извлекаем данные из обычной строки
             cols = row.find_all('td')
-            if len(cols) >= 6:  # Проверяем, что строка содержит все нужные колонки
-                time = cols[0].get_text(strip=True)
-                form = cols[1].get_text(strip=True)
-                subject = cols[2].get_text(strip=True)
-                teacher = cols[3].get_text(strip=True)
-                room = cols[4].get_text(strip=True)
-                note = cols[5].get_text(strip=True)
-                
-                schedule.append({
-                    'date': current_date,
-                    'time': time,
-                    'form': form,
-                    'subject': subject,
-                    'teacher': teacher,
-                    'room': room,
-                    'note': note
-                })
-        
-        # Выводим результат в консоль
-        for entry in schedule:
-            print(f"{entry['date']} | {entry['time']} | {entry['subject']} | {entry['teacher']} | {entry['room']} | {entry['note']}")
-            
-    except Exception as e:
-        print(f"Ошибка: {e}")
+            if len(cols) >= 6 and current_day:
+                if (week_type == "current" and current_day in current_week_days) or \
+                   (week_type == "next" and current_day in next_week_days):
+                    schedule[current_day].append({
+                        'time': cols[0].get_text(strip=True),
+                        'subject': cols[2].get_text(strip=True),
+                        'room': cols[4].get_text(strip=True),
+                        'teacher': cols[3].get_text(strip=True)
+                    })
 
-# URL страницы с расписанием (замените на реальный URL)
-url = "https://rpcollege.ru/internal/timetable/list/group/1246"  # Пример для группы 1-Бух-48
-parse_schedule(url)
+        return schedule
+
+    except requests.exceptions.RequestException as e:
+        print(f"Ошибка при запросе: {e}")
+        return {}
+    except Exception as e:
+        print(f"Неожиданная ошибка: {e}")
+        return {}
+
+# Тестирование
+if __name__ == "__main__":
+    test_url = "https://rpcollege.ru/internal/timetable/list/group/1246"
+    
+    print("=== Текущая неделя ===")
+    current_week = parse_schedule(test_url, "current")
+    for day, lessons in current_week.items():
+        print(f"\n{day}:")
+        for lesson in lessons:
+            print(f"  {lesson['time']} - {lesson['subject']} ({lesson['room']})")
+    
+    print("\n=== Следующая неделя ===")
+    next_week = parse_schedule(test_url, "next")
+    for day, lessons in next_week.items():
+        print(f"\n{day}:")
+        for lesson in lessons:
+            print(f"  {lesson['time']} - {lesson['subject']} ({lesson['room']})")
