@@ -1,8 +1,22 @@
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
-from handlers.auth import setup_auth_handlers  # Импорт функции настройки аутентификации
-from handlers.logout import logout  # Импорт обработчика выхода
-from keyboards import get_main_menu  # Импорт клавиатур
-from config import config  # Импорт конфигурации
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    CallbackContext,
+    ConversationHandler
+)
+from handlers import (
+    setup_auth_handlers,
+    setup_schedule_handlers,
+    setup_grades_handlers,
+    setup_news_handlers,
+    setup_feedback_handlers,
+    setup_logout_handler
+)
+from keyboards import get_main_menu
+from config import config
 import logging
 
 # Настройка логирования
@@ -12,35 +26,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-async def start(update, context):
-    """Обработчик команды /start - первое сообщение при запуске бота"""
+async def start(update: Update, context: CallbackContext):
     await update.message.reply_text(
-        "🎓 Добро пожаловать в бот колледжа!\n"
-        "Для начала работы нажмите «🔐 Войти в систему»",
+        "🎓 Добро пожаловать в бот колледжа!",
         reply_markup=get_main_menu()
     )
 
 def main():
-    try:
-        # Создаем приложение бота
-        app = ApplicationBuilder().token(config.TOKEN).build()
-        
-        # Регистрируем обработчики команд
-        app.add_handler(CommandHandler("start", start))
-        
-        # Настраиваем обработчики аутентификации (из auth.py)
-        setup_auth_handlers(app)
-        
-        # Обработчик выхода из аккаунта
-        app.add_handler(MessageHandler(filters.Text(["🚪 Выйти из аккаунта"]), logout))
-        
-        # Запускаем бота
-        logger.info("Бот успешно запущен")
-        app.run_polling()
-        
-    except Exception as e:
-        logger.critical(f"Ошибка запуска бота: {e}")
-        raise
+    app = ApplicationBuilder().token(config.TOKEN).build()
+    
+    # Регистрация всех обработчиков
+    app.add_handler(CommandHandler("start", start))
+    setup_auth_handlers(app)
+    setup_schedule_handlers(app)
+    setup_grades_handlers(app)
+    setup_news_handlers(app)
+    setup_feedback_handlers(app)
+    setup_logout_handler(app)
+    
+    # Обработчик ошибок
+    app.add_error_handler(lambda u, c: logger.error(f"Error: {c.error}"))
+    
+    logger.info("Бот запущен")
+    app.run_polling()
 
 if __name__ == "__main__":
     main()

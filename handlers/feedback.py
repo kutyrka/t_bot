@@ -1,28 +1,40 @@
-from telegram import Update
-from telegram.ext import CallbackContext
-from telegram import ReplyKeyboardRemove  # Добавить в импорты
+from telegram import Update, ReplyKeyboardRemove
+from telegram.ext import (
+    MessageHandler,
+    filters,
+    CallbackContext,
+    ConversationHandler
+)
+import logging
 
-from decorators import student_required
+logger = logging.getLogger(__name__)
 
-@student_required
 async def start_feedback(update: Update, context: CallbackContext):
     await update.message.reply_text(
-        "📝 Введите ваш отзыв или обращение (анонимно):",
+        "💬 Введите ваш отзыв:",
         reply_markup=ReplyKeyboardRemove()
     )
-    context.user_data['awaiting_feedback'] = True
+    return "WAITING_FEEDBACK"
 
-@student_required
 async def save_feedback(update: Update, context: CallbackContext):
-    if 'awaiting_feedback' in context.user_data:
-        # Сохраняем в БД без привязки к пользователю
-        feedback = update.message.text
-        supabase.table('feedbacks').insert({
-            'text': feedback,
-            'date': 'now()'
-        }).execute()
-        
-        await update.message.reply_text(
-            "✅ Ваш отзыв сохранен анонимно",
-            reply_markup=get_main_menu()
-        )
+    feedback = update.message.text
+    # Сохранение в БД
+    await update.message.reply_text(
+        "✅ Спасибо за отзыв!",
+        reply_markup=context.user_data.get('menu')
+    )
+    return ConversationHandler.END
+
+def setup_feedback_handlers(app):
+    conv_handler = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Text(["💬 Оставить отзыв"]), start_feedback)
+        ],
+        states={
+            "WAITING_FEEDBACK": [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, save_feedback)
+            ]
+        },
+        fallbacks=[]
+    )
+    app.add_handler(conv_handler)

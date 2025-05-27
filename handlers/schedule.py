@@ -1,21 +1,23 @@
 from telegram import Update
-from telegram.ext import CallbackContext
-from services.schedule_generator import generate_schedule_image
-from services.parser import parse_schedule
-from io import BytesIO
-from keyboards import get_main_menu
+from telegram.ext import MessageHandler, filters, CallbackContext
+from services.decorators import student_required  # Исправленный импорт
 import logging
-from decorators import student_required
+
+logger = logging.getLogger(__name__)
 
 @student_required
-async def show_schedule(update: Update, context: CallbackContext):
+async def handle_schedule(update: Update, context: CallbackContext):
     try:
-        # Получаем расписание для студента
-        schedule = config.supabase.table('schedule') \
-            .select('*') \
-            .eq('group_id', context.user_data['group_id']) \
-            .execute()
-        
-        await update.message.reply_text("Ваше расписание на неделю...")
+        await update.message.reply_text(
+            f"📅 Расписание для группы {context.user_data.get('group_name', 'неизвестной группы')}\n"
+            "Функция в разработке..."
+        )
     except Exception as e:
-        await update.message.reply_text("Ошибка загрузки расписания")
+        logger.error(f"Schedule error: {e}")
+        await update.message.reply_text("⚠️ Ошибка загрузки расписания")
+
+def setup_schedule_handlers(app):
+    app.add_handler(MessageHandler(
+        filters.Text(["📅 Расписание"]) & ~filters.COMMAND,
+        handle_schedule
+    ))

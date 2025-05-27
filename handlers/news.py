@@ -1,10 +1,17 @@
 from telegram import Update
-from telegram.ext import CallbackContext
+from telegram.ext import MessageHandler, filters, CallbackContext
+import logging
 
-CHANNEL_LINK = "https://t.me/your_college_channel"
+logger = logging.getLogger(__name__)
 
-async def show_news(update: Update, context: CallbackContext):
+async def handle_news(update: Update, context: CallbackContext):
     await update.message.reply_text(
-        f"Последние новости колледжа: {CHANNEL_LINK}",
-        disable_web_page_preview=True
+        "📢 Последние новости:\n"
+        "https://t.me/ваш_канал"
     )
+
+def setup_news_handlers(app):
+    app.add_handler(MessageHandler(
+        filters.Text(["📢 Новости колледжа"]) & ~filters.COMMAND,
+        handle_news
+    ))
