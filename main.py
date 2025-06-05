@@ -32,6 +32,10 @@ async def start(update: Update, context: CallbackContext):
         reply_markup=get_main_menu()
     )
 
+async def error_handler(update: Update, context: CallbackContext):
+    """Обработчик ошибок"""
+    logger.error(f"Произошла ошибка: {context.error}")
+
 def main():
     app = ApplicationBuilder().token(config.TOKEN).build()
     
@@ -45,7 +49,7 @@ def main():
     setup_logout_handler(app)
     
     # Обработчик ошибок
-    app.add_error_handler(lambda u, c: logger.error(f"Error: {c.error}"))
+    app.add_error_handler(error_handler)
     
     logger.info("Бот запущен")
     app.run_polling()

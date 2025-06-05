@@ -1,7 +1,8 @@
-import requests
+import aiohttp
 from bs4 import BeautifulSoup
 from typing import Dict, List
 import logging
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -15,13 +16,17 @@ class ScheduleParser:
         }
 
     async def parse_schedule(self, schedule_id: int) -> Dict[str, List[Dict]]:
-        """Основной метод парсинга"""
+        """Основной метод парсинга, возвращает расписание на 14 дней с текущей даты"""
         try:
             url = f"{self.base_url}{schedule_id}"
-            response = requests.get(url, headers=self.headers, timeout=15)
-            response.raise_for_status()
+            logger.info(f"Отправка запроса на: {url}")
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=self.headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                    logger.info(f"Статус ответа: {response.status}")
+                    response.raise_for_status()
+                    text = await response.text()
             
-            soup = BeautifulSoup(response.text, 'html.parser')
+            soup = BeautifulSoup(text, 'html.parser')
             table = soup.find('table', {'class': 'table table-main table-bordered'})
             
             if not table:
@@ -30,26 +35,40 @@ class ScheduleParser:
 
             schedule = {}
             current_day = ""
+            end_date = datetime.now() + timedelta(days=13)  # 14 дней, включая сегодня
             
             for row in table.find_all('tr'):
                 if day_header := row.find('th', {'class': 'td-left'}):
                     current_day = day_header.get_text(strip=True)
-                    schedule[current_day] = []
+                    # Преобразуем строку даты в объект datetime
+                    try:
+                        day_date = datetime.strptime(current_day.split(' – ')[0], '%d.%m.%Y')
+                        if day_date < datetime.now() or day_date > end_date:
+                            current_day = None  # Пропускаем дни вне диапазона
+                    except ValueError:
+                        logger.warning(f"Некорректный формат даты: {current_day}")
+                        current_day = None
+                    if current_day:
+                        schedule[current_day] = []
                     continue
                 
-                if cols := row.find_all('td'):
-                    if len(cols) >= 5 and current_day:
-                        schedule[current_day].append({
-                            'time': cols[0].get_text(strip=True),
-                            'subject': cols[2].get_text(strip=True),
-                            'teacher': cols[3].get_text(strip=True),
-                            'room': cols[4].get_text(strip=True)
-                        })
+                if current_day and (cols := row.find_all('td')):  # Проверяем, что cols — список тегов
+                    if len(cols) >= 5:
+                        # Проверяем, что каждый элемент cols — тег, а не строка
+                        lesson = {
+                            'time': cols[0].get_text(strip=True) if hasattr(cols[0], 'get_text') else cols[0],
+                            'subject': cols[2].get_text(strip=True) if hasattr(cols[2], 'get_text') else cols[2],
+                            'teacher': cols[3].get_text(strip=True) if hasattr(cols[3], 'get_text') else cols[3],
+                            'room': cols[4].get_text(strip=True) if hasattr(cols[4], 'get_text') else cols[4]
+                        }
+                        logger.debug(f"Обнаружен урок: {lesson}")
+                        schedule[current_day].append(lesson)
 
+            logger.info(f"Сформировано расписание на 14 дней: {schedule}")
             return schedule
 
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Ошибка запроса: {e}")
+        except aiohttp.ClientError as e:
+            logger.error(f"Ошибка запроса: {e}", exc_info=True)
             return {}
         except Exception as e:
             logger.error(f"Ошибка парсинга: {e}", exc_info=True)
@@ -57,8 +76,6 @@ class ScheduleParser:
 
 # Глобальный экземпляр
 parser = ScheduleParser()
-
-
 # import requests
 # from bs4 import BeautifulSoup
 # from datetime import datetime, timedelta
