@@ -14,52 +14,59 @@ logger = logging.getLogger(__name__)
 async def fetch_subjects_for_group(group_id: int) -> List[str]:
     """Получение всех предметов группы из Supabase."""
     try:
-        url = f"{config.DB_URL}/rest/v1/group_subjects?select=subjects(subject_name)&group_id=eq.{group_id}"
-        headers = {
-            "apikey": config.DB_KEY,
-            "Authorization": f"Bearer {config.DB_KEY}",
-            "Content-Type": "application/json"
-        }
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as response:
-                logger.info(f"Статус ответа Supabase (group_subjects): {response.status}")
-                response.raise_for_status()
-                data = await response.json()
-                subjects = [entry['subjects']['subject_name'] for entry in data]
-                logger.info(f"Получены предметы для группы {group_id}: {subjects}")
-                return subjects
+        logger.debug(f"Fetching subjects for group {group_id}")
+        
+        # Вариант 1: Через хранимую функцию (рекомендуется)
+        response = config.supabase.rpc(
+            'get_group_subjects', 
+            {'p_group_id': group_id}
+        ).execute()
+        
+        # Или Вариант 2: Прямой запрос с явным указанием схемы
+        # response = config.supabase.from_('public.group_subjects') \
+        #     .select('subject:subjects(subject_name)') \
+        #     .eq('group_id', group_id) \
+        #     .execute()
+        
+        if not response.data:
+            logger.warning(f"No subjects found for group {group_id}")
+            return []
+            
+        subjects = [item['subject_name'] for item in response.data]
+        logger.info(f"Found subjects: {subjects}")
+        return subjects
+        
     except Exception as e:
-        logger.error(f"Ошибка получения предметов группы: {e}", exc_info=True)
+        logger.error(f"Error fetching subjects: {e}", exc_info=True)
         return []
 
 async def fetch_grades(student_id: int) -> Dict[str, List[str]]:
     """Получение оценок студента из Supabase."""
     try:
-        url = f"{config.DB_URL}/rest/v1/student_grades?select=grade_value,subjects(subject_name)&student_id=eq.{student_id}&order=date.asc"
-        headers = {
-            "apikey": config.DB_KEY,
-            "Authorization": f"Bearer {config.DB_KEY}",
-            "Content-Type": "application/json"
-        }
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as response:
-                logger.info(f"Статус ответа Supabase (student_grades): {response.status}")
-                response.raise_for_status()
-                data = await response.json()
-                logger.info(f"Получены оценки: {data}")
-
-                # Группировка оценок по предметам
-                grades_by_subject = {}
-                for entry in data:
-                    subject_name = entry.get('subjects', {}).get('subject_name', 'Неизвестный предмет')
-                    grade = str(entry.get('grade_value', '-'))
-                    if subject_name not in grades_by_subject:
-                        grades_by_subject[subject_name] = []
-                    grades_by_subject[subject_name].append(grade)
-
-                return grades_by_subject
+        # Вариант 1: Через хранимую функцию (рекомендуется)
+        response = config.supabase.rpc(
+            'get_student_grades',
+            {'p_student_id': student_id}
+        ).execute()
+        
+        # Или Вариант 2: Прямой запрос с явным JOIN
+        # response = config.supabase.from_('student_grades') \
+        #     .select('grade_value, subjects!inner(subject_name)') \
+        #     .eq('student_id', student_id) \
+        #     .order('date') \
+        #     .execute()
+        
+        grades_by_subject = {}
+        for entry in response.data:
+            subject_name = entry['subject_name']
+            grade = str(entry['grade_value'])
+            grades_by_subject.setdefault(subject_name, []).append(grade)
+            
+        logger.debug(f"Grades data: {grades_by_subject}")
+        return grades_by_subject
+        
     except Exception as e:
-        logger.error(f"Ошибка получения оценок: {e}", exc_info=True)
+        logger.error(f"Error fetching grades: {e}", exc_info=True)
         return {}
 
 def generate_grades_image(subjects: List[str], grades_data: Dict[str, List[str]]) -> List[BytesIO]:
